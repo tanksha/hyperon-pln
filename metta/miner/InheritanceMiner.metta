@@ -13,106 +13,106 @@
 ; 6. Repeat till termination
 
 ; Load sample data
-; !(import! &self example.metta)
-!(import! &self canonical_toy-example-mining.metta)
+!(import! &self sample.metta)
 
 ;; lib
 !(import! &self ../common/Num.metta)
 
 ;; Parameters
-(= (minsup) 1)
+(= (minsup) 4)
 (= (maxiter) 10)
-(= (highsurp) 0.5)
+(= (highsurp) 0.9)
 
 ;; Helper function
-(= (tupleLength $tuple) (if (== $tuple ()) 0 (+ 1 (tupleLength (cdr-atom $tuple)))))
+;; This is very slow,
+; (= (tupleLength $tuple) (if (== $tuple ()) 0 (+ 1 (tupleLength (cdr-atom $tuple)))))
+;; faster but limited implementation of tuple count
+(= (BuildTupleCounts $C $T) 
+   (superpose ((add-atom &self (= (TupleCount $T) $C))
+               (if (> $C 0) (BuildTupleCounts (- $C 1) (cdr-atom $T)) (nop)))))
+!(BuildTupleCounts 100
+ (1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+  1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1))
+(= (CountElement $x) 1)
 
 ;; Ignore non-strongly connected components
 ;; e.g (, (Inheritance $Xvar "Concept man") (Inheritance "Concept Abe" $Yvar))
 ;; is not strongly connected
-(= (getvar (, (Inheritance $a $b) (Inheritance $Candidate $d)) $Xvar $Yvar)
+(= (getvar (, (Inheritance $a $b) (Inheritance $c $d)) $Xvar $Yvar)
 (if (and (== $a $c) (== $b $d)) None 
-    (if (and (== $a $Xvar) (== $Candidate $Xvar)) $Xvar 
+    (if (and (== $a $Xvar) (== $c $Xvar)) $Xvar 
         (if (and (== $b $Yvar) (== $d $Yvar)) $Yvar None))))
-
-(= (getvar (, (Inheritance $a $b) (Inheritance $Candidate $d) (Inheritance $e $f)) $Xvar $Yvar)
-(if (and (== $a $c) (and (== $b $d) (and (== $Candidate $e) (== $d $f)))) None
+(= (getvar (, (Inheritance $a $b) (Inheritance $c $d) (Inheritance $e $f)) $Xvar $Yvar)
+(if (or (and (== $a $e) (== $b $f)) (and (== $c $e) (== $d $f))) None
     (if (and (== $a $c) (== $b $d)) 
-        (getvar (, (Inheritance $Candidate $d) (Inheritance $e $f)) $Xvar $Yvar)
-        (if (or (and (== $a $e) (== $b $f)) (and (== $Candidate $e) (== $d $f)))
-            (getvar (, (Inheritance $a $b) (Inheritance $Candidate $d)) $Xvar $Yvar)
+        (getvar (, (Inheritance $c $d) (Inheritance $e $f)) $Xvar $Yvar)
+        (if (or (and (== $a $e) (== $b $f)) (and (== $c $e) (== $d $f)))
+            (getvar (, (Inheritance $a $b) (Inheritance $c $d)) $Xvar $Yvar)
             (if (== $Xvar (getvar (, (Inheritance $a $b) (Inheritance $e $f)) $Xvar $Yvar))
                 (getvar (, (Inheritance $Xvar $b) (Inheritance $e $f)) $Xvar $Yvar)
                 (getvar (, (Inheritance $a $Yvar) (Inheritance $e $f)) $Xvar $Yvar))))))
 
+;; Count the number of instances of a given pattern
+;; and create candidate pattern with support > minSupport
+;; Set $cnj to True if conjunctions
 (= (count $pattern $cnj $Xvar $Yvar) 
     (if $cnj 
         (let $var (getvar $pattern $Xvar $Yvar) 
             (if (== $var None) 0 
-                (tupleLength (collapse (match &self $pattern $var)))))
-        (tupleLength (collapse (match &self $pattern 1)))))
-
-(= (get_pattern $cnpattern)
-(let (candidate $pattern $cnt) $cnpattern $pattern))
-
+                (TupleCount (collapse (match &self $pattern (CountElement $var))))))
+        (TupleCount (collapse (match &self $pattern 1)))))
 (= (support $pattern $minsup $cnj $Xvar $Yvar)
     (let $cnt (count $pattern $cnj $Xvar $Yvar)
         (if (> $cnt $minsup) (candidate $pattern $cnt) (nop))))
 
-;; iSurprisingness formula
-(= (isurprisingness $pattern)
-    (let $surp
-      (case $pattern (
-        ((candidate (, $p1 $p2) $cnt)
-        (let* (($pp1 (prob (count $p1 False $Xvar $Yvar)))
-            ($pp2 (prob (count $p2 False $Xvar $Yvar)))
-            ($p1p2 (* $pp1 $pp2)) ;; probability estimate 
-            ($p (prob $cnt))) ;; empirical
-            (/ (max (- $p $p1p2) (- $p1p2 $p)) $p)))
-        ((candidate (, $p1 $p2 $p3) $cnt)
-        (let* (($pp1 (prob (count $p1 False $Xvar $Yvar)))
-            ($pp2 (prob (count $p2 False $Xvar $Yvar)))
-            ($pp3 (prob (count $p3 False $Xvar $Yvar)))
-            ($pp1p2 (prob (count (, $p1 $p2) True $Xvar $Yvar)))
-            ($pp1p3 (prob (count (, $p1 $p3) True $Xvar $Yvar)))
-            ($pp2p3 (prob (count (, $p2 $p3) True $Xvar $Yvar)))
-            ($maxP (max (* $pp1p2 $pp3) (max (* $pp1p3 $pp2) (max (* $pp2p3 $pp1) (* $pp1 (* $pp2 $pp3))))))
-            ($minP (min (* $pp1p2 $pp3) (min (* $pp1p3 $pp2) (min (* $pp2p3 $pp1) (* $pp1 (* $pp2 $pp3))))))
-            ($p (prob $cnt)))
-            (/ (max (- $p $maxP) (- $minP $p)) $p)))
-        ($_ 0)))
-     (surp $pattern $surp)))
+;; reformat conjunctions for the pattern matcher
+(= (, (, $a $b) $c) (, $a $b $c))
 
-;; Initial candidates
-(= (Candidate $Xvar $Yvar)
+;; iSurprisingness formula
+(= (universe_size) (TupleCount (collapse (match &self (Inheritance $x $y) 1))))
+(= (prob $count) (/ $count (universe_size)))
+(= (isurprisingness $pattern)
+    (case $pattern (
+      ((candidate (, $p1 $p2) $cnt)
+      (let* (($pp1 (prob (count $p1 False $Xvar $Yvar)))
+          ($pp2 (prob (count $p2 False $Xvar $Yvar)))
+          ($p1p2 (* $pp1 $pp2)) ;; probability estimate 
+          ($p (prob $cnt))) ;; empirical
+          (/ (max (- $p $p1p2) (- $p1p2 $p)) $p)))
+      ((candidate (, $p1 $p2 $p3) $cnt)
+      (let* (($pp1 (prob (count $p1 False $Xvar $Yvar)))
+          ($pp2 (prob (count $p2 False $Xvar $Yvar)))
+          ($pp3 (prob (count $p3 False $Xvar $Yvar)))
+          ($pp1p2 (prob (count (, $p1 $p2) True $Xvar $Yvar)))
+          ($pp1p3 (prob (count (, $p1 $p3) True $Xvar $Yvar)))
+          ($pp2p3 (prob (count (, $p2 $p3) True $Xvar $Yvar)))
+          ;; probability estimate
+          ($maxP (max (* $pp1p2 $pp3) (max (* $pp1p3 $pp2) (max (* $pp2p3 $pp1) (* $pp1 (* $pp2 $pp3))))))
+          ($minP (min (* $pp1p2 $pp3) (min (* $pp1p3 $pp2) (min (* $pp2p3 $pp1) (* $pp1 (* $pp2 $pp3))))))
+          ($p (prob $cnt))) ;; empirical
+          (/ (max (- $p $maxP) (- $minP $p)) $p)))
+      ($_ 0))))
+
+;; Mine candidate patterns
+(= (Candidate Z $Xvar $Yvar)
     (match &self (Inheritance $X $Y) 
         (support (superpose ((Inheritance $Xvar $Y) (Inheritance $X $Yvar))) (minsup) False $Xvar $Yvar)))
-
-; !(, (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar))
-; !(, (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar))
-
-;; Miner
-(= (inheritance_miner $Xvar $Yvar)
+(= (get_pattern $cnpattern)
+(let (candidate $pattern $cnt) $cnpattern $pattern))
+(= (Candidate (S $k) $Xvar $Yvar)
     (let $comb
-        (, (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar)) 
+        (, (get_pattern (Candidate $k $Xvar $Yvar)) (get_pattern (Candidate Z $Xvar $Yvar)))
     (support $comb (minsup) True $Xvar $Yvar)))
 
-; !(inheritance_miner $Xvar $Yvar)
-; (= (isurp) (isurprisingness (inheritance_miner $Xvar $Yvar)))
+;; Test
+; !(Candidate Z $Xvar $Yvar)
+; !(Candidate (S Z) $Xvar $Yvar)
+; !(Candidate (S (S Z)) $Xvar $Yvar)
 
-; !(let (surp $p $n) (isurp) (if (> $n 0.95) $p (nop)))
-; !(isurprisingness (candidate (, (Inheritance $Xvar "Concept soda drinker") (Inheritance $Xvar "Concept human")) 10))
-
-(= (inheritance_miner_ $Xvar $Yvar)
-    (let $comb  
-        (, (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar) (candidate_ptrn $Xvar $Yvar))
-    (support $comb (minsup) True $Xvar $Yvar)))
-
-
-; !(isurprisingness (inheritance_miner_ $Xvar $Yvar))
-
-;; getvar test
-; !(getvar (, (Inheritance $Xvar (Concept "B")) (Inheritance $Xvar (Concept "B")) (Inheritance $Xvar (Concept "B"))) $Xvar $Yvar)
-; !(getvar (, (Inheritance $Xvar (Concept "B")) (Inheritance $Xvar (Concept "B")) (Inheritance (Concept "A") $Yvar)) $Xvar $Yvar)
-; !(getvar (, (Inheritance $Xvar (Concept "B")) (Inheritance (Concept "A") $Yvar) (Inheritance $Xvar (Concept "B"))) $Xvar $Yvar)
-; !(getvar (, (Inheritance (Concept "A") $Yvar) (Inheritance $Xvar (Concept "B")) (Inheritance $Xvar (Concept "B"))) $Xvar $Yvar)
+;; Generate Surprising patterns
+!(let $p (Candidate (S (S Z)) $Xvar $Yvar)
+    (let $isurp (isurprisingness $p) 
+        (if (> $isurp (highsurp)) (surp $p $isurp) (nop))))
