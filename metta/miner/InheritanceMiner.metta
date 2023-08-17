@@ -47,13 +47,9 @@
         (if (and (== $b $Yvar) (== $d $Yvar)) $Yvar None))))
 (= (getvar (, (Inheritance $a $b) (Inheritance $c $d) (Inheritance $e $f)) $Xvar $Yvar)
 (if (or (and (== $a $e) (== $b $f)) (and (== $c $e) (== $d $f))) None
-    (if (and (== $a $c) (== $b $d)) 
-        (getvar (, (Inheritance $c $d) (Inheritance $e $f)) $Xvar $Yvar)
-        (if (or (and (== $a $e) (== $b $f)) (and (== $c $e) (== $d $f)))
-            (getvar (, (Inheritance $a $b) (Inheritance $c $d)) $Xvar $Yvar)
-            (if (== $Xvar (getvar (, (Inheritance $a $b) (Inheritance $e $f)) $Xvar $Yvar))
-                (getvar (, (Inheritance $Xvar $b) (Inheritance $e $f)) $Xvar $Yvar)
-                (getvar (, (Inheritance $a $Yvar) (Inheritance $e $f)) $Xvar $Yvar))))))
+(let* (($p1p3 (getvar (, (Inheritance $a $b) (Inheritance $e $f)) $Xvar $Yvar))
+       ($p2p3 (getvar (, (Inheritance $c $d) (Inheritance $e $f)) $Xvar $Yvar)))
+    (if (or (== $p1p3 None) (== $p2p3 None)) None $p1p3))))
 
 ;; Count the number of instances of a given pattern
 ;; and create candidate pattern with support > minSupport
@@ -96,16 +92,24 @@
           (/ (max (- $p $maxP) (- $minP $p)) $p)))
       ($_ 0))))
 
-;; Mine candidate patterns
+;; Collects unique valuation sets.
+(= (addValuation $x $y)
+    (let* (($xr (collapse (match &self (= (x) $x) $x)))
+          ($yr (collapse (match &self (= (y) $y) $y))))
+        (superpose ( (if (== $xr ($x)) (nop) (add-atom &self (= (x) $x)))
+                    (if (== $yr ($y)) (nop) (add-atom &self (= (y) $y)))))))
 (= (Candidate Z $Xvar $Yvar)
-    (match &self (Inheritance $X $Y) 
-        (support (superpose ((Inheritance $Xvar $Y) (Inheritance $X $Yvar))) (minsup) False $Xvar $Yvar)))
+    (superpose (
+        (match &self (Inheritance $X $Y) (addValuation $X $Y))
+        (let $specialization (superpose ((Inheritance $Xvar (y)) (Inheritance (x) $Yvar)))
+            (support $specialization (minsup) False $Xvar $Yvar)))))
 (= (get_pattern $cnpattern)
-(let (candidate $pattern $cnt) $cnpattern $pattern))
+    (let (candidate $pattern $cnt) $cnpattern $pattern))
 (= (Candidate (S $k) $Xvar $Yvar)
-    (let $comb
-        (, (get_pattern (Candidate $k $Xvar $Yvar)) (get_pattern (Candidate Z $Xvar $Yvar)))
-    (support $comb (minsup) True $Xvar $Yvar)))
+    (let $prev (if (== $k Z) Z (fromNumber (- (fromNat $k) 1)))
+     (let $comb
+        (, (get_pattern (Candidate $k $Xvar $Yvar)) (get_pattern (Candidate $prev $Xvar $Yvar)))
+     (support $comb (minsup) True $Xvar $Yvar))))
 
 ;; Test
 ; !(Candidate Z $Xvar $Yvar)
@@ -113,6 +117,13 @@
 ; !(Candidate (S (S Z)) $Xvar $Yvar)
 
 ;; Generate Surprising patterns
-!(let $p (Candidate (S (S Z)) $Xvar $Yvar)
-    (let $isurp (isurprisingness $p) 
+!(let (candidate $p $cnt) (Candidate (S (S Z)) $Xvar $Yvar)
+    (let $isurp (isurprisingness (candidate $p $cnt)) 
         (if (> $isurp (highsurp)) (surp $p $isurp) (nop))))
+
+; [(surp (, (Inheritance $Xvar man) (Inheritance $Xvar ugly) (Inheritance $Xvar sodadrinker)) 0.9444444444444443),
+;  (surp (, (Inheritance $Xvar man) (Inheritance $Xvar sodadrinker) (Inheritance $Xvar ugly)) 0.9444444444444443),
+;  (surp (, (Inheritance $Xvar ugly) (Inheritance $Xvar man) (Inheritance $Xvar sodadrinker)) 0.9444444444444443),
+;  (surp (, (Inheritance $Xvar ugly) (Inheritance $Xvar sodadrinker) (Inheritance $Xvar man)) 0.9444444444444443),
+;  (surp (, (Inheritance $Xvar sodadrinker) (Inheritance $Xvar man) (Inheritance $Xvar ugly)) 0.9444444444444443),
+;  (surp (, (Inheritance $Xvar sodadrinker) (Inheritance $Xvar ugly) (Inheritance $Xvar man)) 0.9444444444444443)]
